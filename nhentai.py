@@ -22,7 +22,7 @@ def run_nhentai_command(args):
         latest_log_output = output  # ⬅️ 儲存最近 log
 
         if "main: 🍻 All done." in output:
-            flash("✅ Dowload success", "success")
+            flash("✅ Download success", "success")
         elif "cmd_parser: User-Agent saved" in output:
             flash("✅ User-Agent saved", "success")
         elif "cmd_parser: Cookie saved" in output:
@@ -79,10 +79,41 @@ def cookies():
 
 @app.route('/download', methods=['POST'])
 def download():
-    gallery_id = request.form.get('id', '').strip()
-    if not gallery_id.isdigit():
-        flash("ID Must be 6 digit ❌", "error")
+    raw = request.form.get('id', '').strip()
+
+    # Normalize whitespace: spaces / tabs / newlines 都會被 split() 處理
+    parts = raw.split()
+
+    # 驗證：每個 token 都必須是 6 位數字
+    if not parts or any((not p.isdigit()) or len(p) != 6 for p in parts):
+        flash("Invalid ID format ❌ (Use six-digit numbers separated by spaces)", "error")
         return redirect(url_for('index'))
+
+    # 去重並保序
+    seen = set()
+    id_list = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            id_list.append(p)
+
+    # （可選）限制一次最多 50 組
+    if len(id_list) > 50:
+        flash("Too many IDs at once ❌ (Max 50)", "error")
+        return redirect(url_for('index'))
+
+    # 逐一下載
+    for gid in id_list:
+        command = [
+            "nhentai", "--id", gid,
+            "--page-all", "--download", "--delay", "1",
+            "--cbz", "--format", DEFAULT_FORMAT,
+            "--rm-origin-dir", "--output", DOWNLOAD_PATH
+        ]
+        run_nhentai_command(command)
+
+    flash(f"Processed {len(id_list)} ID(s) ✅", "success")
+    return redirect(url_for('index'))
 
     command = [
         "nhentai", "--id", gallery_id,
