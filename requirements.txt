@@ -1,2 +1,2 @@
 Flask
-nhentai
+curl_cffi
