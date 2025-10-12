@@ -64,6 +64,6 @@ docker run -d -p 61234:61234 \
 |--------------------|------------------------------------------------------------------------|------------|---------------------|
 | `NHENTAI_PASSWORD` | Password required to access the web UI. Stored in cookie for 30 days.  | `admin`    | `mystrongpassword` |
 | `DOWNLOAD_PATH`    | Directory where downloaded doujins will be saved inside the container. | `/nhentai` | `/download`        |
-| `DEFAULT_FORMAT`   | File naming format passed to the nhentai CLI during downloads.         | `%a%t`     | `%a%t-%i`          |
+| `DEFAULT_FORMAT`   | Default filename format.       | `%a%t`     | `%a%t-%i`          |
 
 
