@@ -19,7 +19,7 @@ PASSWORD = os.getenv("NHENTAI_PASSWORD", "admin")
 
 # 下載相關設定
 DOWNLOAD_PATH = "/nhentai"
-DEFAULT_FORMAT = "%a%t"
+DEFAULT_FORMAT = os.getenv("DEFAULT_FORMAT", "%a%t")
 
 # 背景任務相關設定
 MAX_TASK_HISTORY = 50
