@@ -445,7 +445,7 @@
       <p class="helper">Paste the nhentai cookie string captured from your browser session.</p>
       <form class="stack" id="ck-form" action="/cookies" method="post">
         <label class="form-label" for="ck">Cookie string</label>
-        <input type="text" id="ck" name="ck" placeholder="cf_clearance=...; csrftoken=..." required />
+        <input type="text" id="ck" name="ck" required />
         <button class="primary" type="submit">Save Cookie</button>
       </form>
     </section>
@@ -455,7 +455,7 @@
       <p class="helper">Provide the User-Agent header that matches your nhentai session.</p>
       <form class="stack" id="ua-form" action="/ua" method="post">
         <label class="form-label" for="ua">User-Agent</label>
-        <input type="text" id="ua" name="ua" placeholder="Mozilla/5.0 ..." required />
+        <input type="text" id="ua" name="ua" required />
         <button class="primary" type="submit">Save User-Agent</button>
       </form>
     </section>
@@ -465,7 +465,7 @@
       <p class="helper">Enter one or multiple gallery IDs separated by spaces, commas, or new lines. Tasks are processed sequentially in the background.</p>
       <form class="stack" id="id-form" action="/download" method="post">
         <label class="form-label" for="id">Nhentai gallery IDs</label>
-        <textarea id="id" name="id" placeholder="123456 987654 192837"></textarea>
+        <textarea id="id" name="id"></textarea>
         <button class="primary" type="submit">Queue Downloads</button>
       </form>
     </section>
