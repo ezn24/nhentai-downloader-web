@@ -23,7 +23,7 @@ Easily download manga from nhentai.net using gallery ID, with cookie and user-ag
 
 # Method 1: Git clone
 ```bash
-git clone https://github.com/1030283726/nhentai-downloader-web.git
+git clone https://github.com/ezn24/nhentai-downloader-web.git
 cd nhentai-downloader-web
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
@@ -46,7 +46,7 @@ docker run -d -p 61234:61234 \
 
 # Method 3: Build by Dockerfile
 ```bash
-git clone https://github.com/1030283726/nhentai-downloader-web.git
+git clone https://github.com/ezn24/nhentai-downloader-web.git
 cd nhentai-downloader-web
 
 docker build -t nhentai-downloader-web .
