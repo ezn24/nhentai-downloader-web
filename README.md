@@ -87,3 +87,38 @@ Visit http://localhost:61234
 | `DOWNLOAD_PATH` | Directory where downloaded doujins will be saved inside the container. | `/nhentai` | `/download` |
 | `DEFAULT_FORMAT` | Default filename format. | `%a%t` | `%a%t-%i` |
 | `DOUJINSHI_DL_URL` | Mirror/base URL used by `doujinshi-dl-nhentai`. | `https://nhentai.net` | `https://nhentai.net` |
+
+---
+
+## API
+
+Queue one download:
+
+```bash
+curl -X POST http://localhost:61234/api/download \
+  -H "Content-Type: application/json" \
+  -H "X-API-Password: yourpassword" \
+  -d "{\"id\":\"625927\"}"
+```
+
+Queue multiple downloads:
+
+```bash
+curl -X POST http://localhost:61234/api/download \
+  -H "Content-Type: application/json" \
+  -H "X-API-Password: yourpassword" \
+  -d "{\"ids\":[\"625927\",\"625928\"]}"
+```
+
+The API also accepts `id`, `ids`, or `gallery_id` from form fields or query parameters:
+
+```bash
+curl -X POST "http://localhost:61234/api/download?ids=625927,625928" \
+  -H "X-API-Password: yourpassword"
+```
+
+Successful requests return HTTP `202` with the queued task ID. Check queue status:
+
+```bash
+curl http://localhost:61234/queue-status
+```

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, flash, make_response, jsonify
+import json
 import os
 import queue
 import re
@@ -222,6 +223,69 @@ def run_doujinshi_command(
     return _enqueue_task(args, label, output_dir)
 
 
+def parse_gallery_ids(raw) -> tuple[list[str], str | None]:
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+
+    if isinstance(raw, list):
+        parts = [str(part).strip() for part in raw if str(part).strip()]
+    else:
+        parts = [part for part in re.split(r"[\s,]+", str(raw or "").strip()) if part]
+
+    if not parts or any((not p.isdigit()) or len(p) != 6 for p in parts):
+        return [], "Invalid ID format (Use six-digit numbers separated by spaces, commas, or new lines)"
+
+    seen = set()
+    id_list = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            id_list.append(p)
+
+    if len(id_list) > 50:
+        return [], "Too many IDs at once (Max 50)"
+
+    return id_list, None
+
+
+def enqueue_download(id_list: list[str]) -> dict:
+    output_dir = get_download_path()
+    name_format = get_default_format()
+
+    command = [
+        "doujinshi-dl",
+        "--id",
+        *id_list,
+        "--page-all",
+        "--download",
+        "--delay",
+        "1",
+        "--meta",
+        "--cbz",
+        "--format",
+        name_format,
+        "--rm-origin-dir",
+        "--output",
+        output_dir,
+    ]
+    return run_doujinshi_command(command, label=f"Download {len(id_list)} ID(s)", output_dir=output_dir)
+
+
+def api_password_verified() -> bool:
+    password = request.headers.get("X-API-Password", "")
+    if not password:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            password = auth_header[7:].strip()
+
+    return password == PASSWORD
+
+
 @app.route("/")
 def index():
     password_cookie = request.cookies.get("nhentai_auth")
@@ -262,45 +326,46 @@ def verify_password():
 @app.route("/download", methods=["POST"])
 def download():
     raw = request.form.get("id", "").strip()
-    parts = [part for part in re.split(r"[\s,]+", raw) if part]
-
-    if not parts or any((not p.isdigit()) or len(p) != 6 for p in parts):
-        flash("Invalid ID format (Use six-digit numbers separated by spaces, commas, or new lines)", "error")
+    id_list, error = parse_gallery_ids(raw)
+    if error:
+        flash(error, "error")
         return redirect(url_for("index"))
 
-    seen = set()
-    id_list = []
-    for p in parts:
-        if p not in seen:
-            seen.add(p)
-            id_list.append(p)
-
-    if len(id_list) > 50:
-        flash("Too many IDs at once (Max 50)", "error")
-        return redirect(url_for("index"))
-
-    output_dir = get_download_path()
-    name_format = get_default_format()
-
-    command = [
-        "doujinshi-dl",
-        "--id",
-        *id_list,
-        "--page-all",
-        "--download",
-        "--delay",
-        "1",
-        "--meta",
-        "--cbz",
-        "--format",
-        name_format,
-        "--rm-origin-dir",
-        "--output",
-        output_dir,
-    ]
-    task = run_doujinshi_command(command, label=f"Download {len(id_list)} ID(s)", output_dir=output_dir)
+    task = enqueue_download(id_list)
     flash(f"Queued download task #{task['id']} for {len(id_list)} ID(s)", "success")
     return redirect(url_for("index"))
+
+
+@app.route("/api/download", methods=["POST"])
+def api_download():
+    if not api_password_verified():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    raw_ids = (
+        payload.get("ids")
+        or payload.get("id")
+        or payload.get("gallery_id")
+        or request.form.get("ids")
+        or request.form.get("id")
+        or request.form.get("gallery_id")
+        or request.args.get("ids")
+        or request.args.get("id")
+        or request.args.get("gallery_id")
+    )
+
+    id_list, error = parse_gallery_ids(raw_ids)
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+
+    task = enqueue_download(id_list)
+    return jsonify({
+        "ok": True,
+        "task": _serialize_task(task),
+        "ids": id_list,
+        "output_dir": task.get("output_dir"),
+        "status_url": url_for("queue_status", _external=False),
+    }), 202
 
 
 if __name__ == "__main__":
