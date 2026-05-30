@@ -40,8 +40,7 @@ Visit http://localhost:61234
 ## Build Docker Image
 
 ```bash
-git clone https://github.com/ezn24/nhentai-downloader-web
-cd ./nhentai-downloader-web
+cd /path/to/nhentai-downloader-web
 
 docker build -t nhentai-downloader-web .
 
@@ -56,22 +55,26 @@ docker run -d -p 61234:61234 \
 
 ## Local Run
 
+Create a local `.env` file in the project directory:
+
+```env
+NHENTAI_PASSWORD=yourpassword
+DOUJINSHI_DL_TOKEN=YOUR_API_TOKEN
+DOWNLOAD_PATH=C:\path\to\download
+```
+
+Then start the app:
+
 ```bash
-git clone https://github.com/ezn24/nhentai-downloader-web
-cd ./nhentai-downloader-web
+cd /path/to/nhentai-downloader-web
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-export NHENTAI_PASSWORD=yourpassword
-export DOUJINSHI_DL_TOKEN=YOUR_API_TOKEN
-export DOWNLOAD_PATH=/path/to/your/dir
 python nhentai.py
 ```
 
 Visit http://localhost:61234
 
-Token input is intentionally not available in the Web UI. Set `DOUJINSHI_DL_TOKEN` in the process or container environment before starting the app.
 
 ---
 

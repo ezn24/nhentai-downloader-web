@@ -12,15 +12,29 @@ import uuid
 
 latest_log_output = ""
 
+
+def load_dotenv(path: str = ".env") -> None:
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as env_file:
+        for line in env_file:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            if not key or key in os.environ:
+                continue
+
+            os.environ[key] = clean_env_value(value)
+
+
 app = Flask(__name__, template_folder="./html")
 app.secret_key = os.urandom(24)
 
 PASSWORD = os.getenv("NHENTAI_PASSWORD", "admin")
-
-DOWNLOAD_PATH = os.getenv("DOWNLOAD_PATH", "/nhentai")
-DEFAULT_FORMAT = os.getenv("DEFAULT_FORMAT", "%a%t")
-DOUJINSHI_DL_URL = os.getenv("DOUJINSHI_DL_URL", "https://nhentai.net")
-DOUJINSHI_DL_TOKEN = os.getenv("DOUJINSHI_DL_TOKEN", "").strip()
 
 MAX_TASK_HISTORY = 50
 task_queue: "queue.Queue[dict | None]" = queue.Queue()
@@ -28,18 +42,48 @@ task_history = []
 task_lock = threading.Lock()
 
 
+def clean_env_value(value: str, default: str = "") -> str:
+    value = (value or default).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+    return value.strip()
+
+
+load_dotenv()
+
+
+def get_download_path() -> str:
+    raw_path = clean_env_value(os.getenv("DOWNLOAD_PATH", "/nhentai"), "/nhentai")
+    if raw_path.startswith("/"):
+        return raw_path
+    return os.path.abspath(os.path.expanduser(raw_path))
+
+
+def get_default_format() -> str:
+    return clean_env_value(os.getenv("DEFAULT_FORMAT", "%a%t"), "%a%t")
+
+
+def get_doujinshi_url() -> str:
+    return clean_env_value(os.getenv("DOUJINSHI_DL_URL", "https://nhentai.net"), "https://nhentai.net")
+
+
+def get_doujinshi_token() -> str:
+    return clean_env_value(os.getenv("DOUJINSHI_DL_TOKEN", ""))
+
+
 def doujinshi_env() -> dict[str, str]:
     env = os.environ.copy()
-    env["DOUJINSHI_DL_URL"] = DOUJINSHI_DL_URL
+    env["DOUJINSHI_DL_URL"] = get_doujinshi_url()
     return env
 
 
 def configure_env_token() -> str:
-    if not DOUJINSHI_DL_TOKEN:
+    token = get_doujinshi_token()
+    if not token:
         return ""
 
     result = subprocess.run(
-        ["doujinshi-dl", "--token", DOUJINSHI_DL_TOKEN],
+        ["doujinshi-dl", "--token", token],
         capture_output=True,
         text=True,
         env=doujinshi_env(),
@@ -90,7 +134,7 @@ def _serialize_task(task: dict) -> dict:
     }
 
 
-def _enqueue_task(args: list[str], label: str | None = None) -> dict:
+def _enqueue_task(args: list[str], label: str | None = None, output_dir: str | None = None) -> dict:
     task = {
         "id": uuid.uuid4().hex[:8],
         "label": label or " ".join(args),
@@ -102,6 +146,7 @@ def _enqueue_task(args: list[str], label: str | None = None) -> dict:
         "returncode": None,
         "summary": None,
         "output": "",
+        "output_dir": output_dir,
         "duration": None,
     }
 
@@ -128,13 +173,22 @@ def _command_worker() -> None:
 
         try:
             token_output = configure_env_token()
+            output_dir = task.get("output_dir")
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             result = subprocess.run(
                 task["command"],
                 capture_output=True,
                 text=True,
                 env=doujinshi_env(),
             )
-            output = token_output + (result.stdout or "") + (result.stderr or "")
+            output = (
+                f"Output directory: {output_dir}\n"
+                f"Command: {' '.join(task['command'])}\n\n"
+                + token_output
+                + (result.stdout or "")
+                + (result.stderr or "")
+            )
             returncode = result.returncode
         except Exception as exc:
             output = str(exc)
@@ -160,8 +214,12 @@ worker_thread = threading.Thread(target=_command_worker, daemon=True)
 worker_thread.start()
 
 
-def run_doujinshi_command(args: list[str], label: str | None = None) -> dict:
-    return _enqueue_task(args, label)
+def run_doujinshi_command(
+        args: list[str],
+        label: str | None = None,
+        output_dir: str | None = None,
+) -> dict:
+    return _enqueue_task(args, label, output_dir)
 
 
 @app.route("/")
@@ -206,10 +264,6 @@ def download():
     raw = request.form.get("id", "").strip()
     parts = [part for part in re.split(r"[\s,]+", raw) if part]
 
-    if not DOUJINSHI_DL_TOKEN:
-        flash("DOUJINSHI_DL_TOKEN is required in the deployment environment", "error")
-        return redirect(url_for("index"))
-
     if not parts or any((not p.isdigit()) or len(p) != 6 for p in parts):
         flash("Invalid ID format (Use six-digit numbers separated by spaces, commas, or new lines)", "error")
         return redirect(url_for("index"))
@@ -225,6 +279,9 @@ def download():
         flash("Too many IDs at once (Max 50)", "error")
         return redirect(url_for("index"))
 
+    output_dir = get_download_path()
+    name_format = get_default_format()
+
     command = [
         "doujinshi-dl",
         "--id",
@@ -233,17 +290,21 @@ def download():
         "--download",
         "--delay",
         "1",
+        "--meta",
         "--cbz",
         "--format",
-        DEFAULT_FORMAT,
+        name_format,
         "--rm-origin-dir",
         "--output",
-        DOWNLOAD_PATH,
+        output_dir,
     ]
-    task = run_doujinshi_command(command, label=f"Download {len(id_list)} ID(s)")
+    task = run_doujinshi_command(command, label=f"Download {len(id_list)} ID(s)", output_dir=output_dir)
     flash(f"Queued download task #{task['id']} for {len(id_list)} ID(s)", "success")
     return redirect(url_for("index"))
 
 
 if __name__ == "__main__":
+    print(f"DOWNLOAD_PATH={get_download_path()}")
+    print(f"DOUJINSHI_DL_URL={get_doujinshi_url()}")
+    print(f"DOUJINSHI_DL_TOKEN={'set' if get_doujinshi_token() else 'not set'}")
     app.run(debug=True, host="0.0.0.0", port=61234)
