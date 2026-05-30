@@ -266,8 +266,13 @@
       font-size: 0.95rem;
     }
 
-    .status-card {
+    .wide-card {
       grid-column: 1 / -1;
+    }
+
+    .download-card {
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025));
+      border-color: rgba(255, 255, 255, 0.14);
     }
 
     .status-header {
@@ -420,29 +425,9 @@
     </h1>
   </header>
   <main class="grid">
-    <section class="card">
-      <h2>Cookies</h2>
-      <p class="helper">Paste the nhentai cookie string captured from your browser session.</p>
-      <form class="stack" id="ck-form" action="/cookies" method="post">
-        <label class="form-label" for="ck">Cookie string</label>
-        <input type="text" id="ck" name="ck" required />
-        <button class="primary" type="submit">Save Cookie</button>
-      </form>
-    </section>
-
-    <section class="card">
-      <h2>User-Agent</h2>
-      <p class="helper">Provide the User-Agent header that matches your nhentai session.</p>
-      <form class="stack" id="ua-form" action="/ua" method="post">
-        <label class="form-label" for="ua">User-Agent</label>
-        <input type="text" id="ua" name="ua" required />
-        <button class="primary" type="submit">Save User-Agent</button>
-      </form>
-    </section>
-
-    <section class="card">
+    <section class="card wide-card download-card">
       <h2>Download queue</h2>
-      <p class="helper">Enter one or multiple gallery IDs separated by spaces, commas, or new lines. Tasks are processed sequentially in the background.</p>
+      <p class="helper">Enter one or multiple gallery IDs separated by spaces, commas, or new lines. Token authentication is configured only through the deployment environment.</p>
       <form class="stack" id="id-form" action="/download" method="post">
         <label class="form-label" for="id">Nhentai gallery IDs</label>
         <textarea id="id" name="id"></textarea>
@@ -450,7 +435,7 @@
       </form>
     </section>
 
-    <section class="card status-card">
+    <section class="card wide-card">
       <div class="status-header">
         <div>
           <h2 style="margin-bottom: 4px;">Task activity</h2>
@@ -473,7 +458,7 @@
   </div>
 
   <footer>
-    Powered by <a href="https://github.com/RicterZ/nhentai" target="_blank" rel="noopener">RicterZ/nhentai</a>
+    Powered by <a href="https://github.com/RicterZ/doujinshi-dl" target="_blank" rel="noopener">RicterZ/doujinshi-dl</a>
   </footer>
 
   <a href="https://github.com/1030283726/nhentai-downloader-web" class="github-corner" aria-label="View source on GitHub" target="_blank" rel="noopener noreferrer">

@@ -1,2 +1,3 @@
 Flask
-curl_cffi
+doujinshi-dl
+doujinshi-dl-nhentai

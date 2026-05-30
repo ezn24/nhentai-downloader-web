@@ -2,30 +2,49 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, flash, make_response, jsonify
+import os
 import queue
+import re
 import subprocess
 import threading
 import time
-import os
 import uuid
 
 latest_log_output = ""
 
-app = Flask(__name__, template_folder='./html')
+app = Flask(__name__, template_folder="./html")
 app.secret_key = os.urandom(24)
 
-# 密碼從環境變數讀取，若沒設定則預設為 "admin"
 PASSWORD = os.getenv("NHENTAI_PASSWORD", "admin")
 
-# 下載相關設定
-DOWNLOAD_PATH = "/nhentai"
+DOWNLOAD_PATH = os.getenv("DOWNLOAD_PATH", "/nhentai")
 DEFAULT_FORMAT = os.getenv("DEFAULT_FORMAT", "%a%t")
+DOUJINSHI_DL_URL = os.getenv("DOUJINSHI_DL_URL", "https://nhentai.net")
+DOUJINSHI_DL_TOKEN = os.getenv("DOUJINSHI_DL_TOKEN", "").strip()
 
-# 背景任務相關設定
 MAX_TASK_HISTORY = 50
-task_queue: "queue.Queue[dict]" = queue.Queue()
+task_queue: "queue.Queue[dict | None]" = queue.Queue()
 task_history = []
 task_lock = threading.Lock()
+
+
+def doujinshi_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["DOUJINSHI_DL_URL"] = DOUJINSHI_DL_URL
+    return env
+
+
+def configure_env_token() -> str:
+    if not DOUJINSHI_DL_TOKEN:
+        return ""
+
+    result = subprocess.run(
+        ["doujinshi-dl", "--token", DOUJINSHI_DL_TOKEN],
+        capture_output=True,
+        text=True,
+        env=doujinshi_env(),
+    )
+    return (result.stdout or "") + (result.stderr or "")
 
 
 def _format_timestamp(timestamp: float | None) -> str | None:
@@ -35,14 +54,8 @@ def _format_timestamp(timestamp: float | None) -> str | None:
 
 
 def _summarize_result(output: str, returncode: int | None) -> tuple[str, str]:
-    if "main: 🍻 All done." in output:
-        return "success", "Download finished"
-    if "cmd_parser: User-Agent saved" in output:
-        return "success", "User-Agent saved"
-    if "cmd_parser: Cookie saved" in output:
-        return "success", "Cookie saved"
     if returncode == 0:
-        return "warning", "Completed (check log)"
+        return "success", "Download finished"
     return "failed", "Command failed"
 
 
@@ -50,7 +63,6 @@ STATUS_DISPLAY = {
     "queued": "Queued",
     "running": "Running",
     "success": "Success",
-    "warning": "Completed (check log)",
     "failed": "Failed",
 }
 
@@ -115,16 +127,21 @@ def _command_worker() -> None:
             task["started_at"] = time.time()
 
         try:
-            result = subprocess.run(task["command"], capture_output=True, text=True)
-            output = (result.stdout or "") + (result.stderr or "")
+            token_output = configure_env_token()
+            result = subprocess.run(
+                task["command"],
+                capture_output=True,
+                text=True,
+                env=doujinshi_env(),
+            )
+            output = token_output + (result.stdout or "") + (result.stderr or "")
             returncode = result.returncode
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             output = str(exc)
             returncode = None
 
         latest_log_output = output
         finished_at = time.time()
-
         status, summary = _summarize_result(output, returncode)
 
         with task_lock:
@@ -143,22 +160,23 @@ worker_thread = threading.Thread(target=_command_worker, daemon=True)
 worker_thread.start()
 
 
-def run_nhentai_command(args: list[str], label: str | None = None) -> dict:
+def run_doujinshi_command(args: list[str], label: str | None = None) -> dict:
     return _enqueue_task(args, label)
 
 
-@app.route('/')
+@app.route("/")
 def index():
     password_cookie = request.cookies.get("nhentai_auth")
     is_verified = password_cookie == "ok"
     return render_template("index.html", password=PASSWORD, verified=is_verified)
 
-@app.route('/debug-log')
+
+@app.route("/debug-log")
 def debug_log():
     return latest_log_output, 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
-@app.route('/queue-status')
+@app.route("/queue-status")
 def queue_status():
     with task_lock:
         serialized = [_serialize_task(task) for task in task_history]
@@ -171,50 +189,31 @@ def queue_status():
     })
 
 
-@app.route('/verify-password', methods=['POST'])
+@app.route("/verify-password", methods=["POST"])
 def verify_password():
     password = request.form.get("password", "")
     if password == PASSWORD:
         resp = make_response(redirect(url_for("index")))
-        resp.set_cookie("nhentai_auth", "ok", max_age=60*60*24*30)  # 有效期30天
+        resp.set_cookie("nhentai_auth", "ok", max_age=60 * 60 * 24 * 30)
         return resp
-    else:
-        flash("Wrong password", "error")
+
+    flash("Wrong password", "error")
+    return redirect(url_for("index"))
+
+
+@app.route("/download", methods=["POST"])
+def download():
+    raw = request.form.get("id", "").strip()
+    parts = [part for part in re.split(r"[\s,]+", raw) if part]
+
+    if not DOUJINSHI_DL_TOKEN:
+        flash("DOUJINSHI_DL_TOKEN is required in the deployment environment", "error")
         return redirect(url_for("index"))
 
-@app.route('/ua', methods=['POST'])
-def ua():
-    ua = request.form.get('ua', '').strip()
-    if not ua or len(ua) > 200:
-        flash("User-Agent error ❌", "error")
-        return redirect(url_for('index'))
-    task = run_nhentai_command(["nhentai", "--useragent", ua], label="Save User-Agent")
-    flash(f"Task #{task['id']} queued to update User-Agent", "success")
-    return redirect(url_for('index'))
-
-@app.route('/cookies', methods=['POST'])
-def cookies():
-    ck = request.form.get('ck', '').strip()
-    if not ck or len(ck) > 1000:
-        flash("Cookie error ❌", "error")
-        return redirect(url_for('index'))
-    task = run_nhentai_command(["nhentai", "--cookie", ck], label="Save Cookie")
-    flash(f"Task #{task['id']} queued to update Cookie", "success")
-    return redirect(url_for('index'))
-
-@app.route('/download', methods=['POST'])
-def download():
-    raw = request.form.get('id', '').strip()
-
-    # Normalize whitespace: spaces / tabs / newlines 都會被 split() 處理
-    parts = raw.split()
-
-    # 驗證：每個 token 都必須是 6 位數字
     if not parts or any((not p.isdigit()) or len(p) != 6 for p in parts):
-        flash("Invalid ID format ❌ (Use six-digit numbers separated by spaces)", "error")
-        return redirect(url_for('index'))
+        flash("Invalid ID format (Use six-digit numbers separated by spaces, commas, or new lines)", "error")
+        return redirect(url_for("index"))
 
-    # 去重並保序
     seen = set()
     id_list = []
     for p in parts:
@@ -222,27 +221,29 @@ def download():
             seen.add(p)
             id_list.append(p)
 
-    # （可選）限制一次最多 50 組
     if len(id_list) > 50:
-        flash("Too many IDs at once ❌ (Max 50)", "error")
-        return redirect(url_for('index'))
+        flash("Too many IDs at once (Max 50)", "error")
+        return redirect(url_for("index"))
 
-    queued = []
-    for gid in id_list:
-        command = [
-            "nhentai", "--id", gid,
-            "--page-all", "--download", "--delay", "1",
-            "--cbz", "--format", DEFAULT_FORMAT,
-            "--rm-origin-dir", "--output", DOWNLOAD_PATH
-        ]
-        task = run_nhentai_command(command, label=f"Download {gid}")
-        queued.append(f"{gid} (#{task['id']})")
+    command = [
+        "doujinshi-dl",
+        "--id",
+        *id_list,
+        "--page-all",
+        "--download",
+        "--delay",
+        "1",
+        "--cbz",
+        "--format",
+        DEFAULT_FORMAT,
+        "--rm-origin-dir",
+        "--output",
+        DOWNLOAD_PATH,
+    ]
+    task = run_doujinshi_command(command, label=f"Download {len(id_list)} ID(s)")
+    flash(f"Queued download task #{task['id']} for {len(id_list)} ID(s)", "success")
+    return redirect(url_for("index"))
 
-    if queued:
-        flash(f"Queued {len(queued)} download task(s): {', '.join(queued)}", "success")
-    else:
-        flash("No tasks queued", "error")
-    return redirect(url_for('index'))
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=61234)
