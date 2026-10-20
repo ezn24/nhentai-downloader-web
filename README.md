@@ -30,7 +30,7 @@ docker run -d \
   -e NHENTAI_PASSWORD=yourpassword \
   -e DOUJINSHI_DL_TOKEN=YOUR_API_TOKEN \
   -v /your-path:/nhentai \
-  1030283726/nhentai-downloader-web
+  ghcr.io/ezn24/nhentai-downloader-web:latest
 ```
 
 Open:
